@@ -11,6 +11,9 @@ __pycache__/
 # Chainlit runtime files
 .files/
 
+# Local feedback logs
+feedback.csv
+
 # Scratch notebooks
 new.ipynb
 new1.ipynb

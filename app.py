@@ -1,5 +1,8 @@
 import chainlit as cl
+import csv
+import os
 import time
+from datetime import datetime
 from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_groq import ChatGroq
@@ -17,7 +20,7 @@ vectorstore = Chroma(
     embedding_function=embedding_model
 )
 
-llm = ChatGroq(model="llama-3.3-70b-versatile")
+llm = ChatGroq(model="openai/gpt-oss-120b")
 
 rag_prompt = ChatPromptTemplate.from_template("""
 You are a helpful customer support assistant for a telecom company.
@@ -57,6 +60,7 @@ Message: {message}
 MAX_INPUT_LENGTH = 500
 RATE_LIMIT_COUNT = 5
 RATE_LIMIT_WINDOW = 30
+FEEDBACK_FILE = "feedback.csv"
 
 
 def classify_message(message: str) -> str:
@@ -77,6 +81,22 @@ def chitchat_answer(message):
     chain = chitchat_prompt | llm
     response = chain.invoke({"message": message})
     return response.content
+
+
+def save_feedback(rating, category, question, answer):
+    file_exists = os.path.isfile(FEEDBACK_FILE)
+    # utf-8-sig so Arabic text displays correctly when opened in Excel
+    with open(FEEDBACK_FILE, "a", newline="", encoding="utf-8-sig") as f:
+        writer = csv.writer(f)
+        if not file_exists:
+            writer.writerow(["timestamp", "rating", "category", "question", "answer"])
+        writer.writerow([
+            datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            rating,
+            category,
+            question,
+            answer,
+        ])
 
 
 @cl.on_message
@@ -114,4 +134,51 @@ async def main(message: cl.Message):
     else:
         answer = rag_answer(user_question)
 
-    await cl.Message(content=answer).send()
+    # Create the reply with rating buttons attached
+    reply = cl.Message(content=answer)
+    reply.actions = [
+        cl.Action(name="rate_up", payload={"msg_id": reply.id}, label="👍"),
+        cl.Action(name="rate_down", payload={"msg_id": reply.id}, label="👎"),
+    ]
+
+    # Remember the question/answer for this reply so the rating can be logged
+    pending = cl.user_session.get("pending_ratings", {})
+    pending[reply.id] = {
+        "message": reply,
+        "category": category,
+        "question": user_question,
+        "answer": answer,
+    }
+    cl.user_session.set("pending_ratings", pending)
+
+    await reply.send()
+
+
+async def handle_rating(action: cl.Action, rating: str):
+    pending = cl.user_session.get("pending_ratings", {})
+    entry = pending.pop(action.payload.get("msg_id"), None)
+    cl.user_session.set("pending_ratings", pending)
+
+    # Already rated (or session restarted) — ignore duplicate clicks
+    if entry is None:
+        return
+
+    save_feedback(rating, entry["category"], entry["question"], entry["answer"])
+
+    # Remove both buttons and show a short confirmation under the answer
+    reply = entry["message"]
+    for a in reply.actions:
+        await a.remove()
+    reply.actions = []
+    reply.content = f"{entry['answer']}\n\n*Thanks for your feedback {'👍' if rating == 'up' else '👎'}*"
+    await reply.update()
+
+
+@cl.action_callback("rate_up")
+async def on_rate_up(action: cl.Action):
+    await handle_rating(action, "up")
+
+
+@cl.action_callback("rate_down")
+async def on_rate_down(action: cl.Action):
+    await handle_rating(action, "down")
