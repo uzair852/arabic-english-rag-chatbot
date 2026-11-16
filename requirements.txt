@@ -1,0 +1,7 @@
+chainlit
+langchain
+langchain-groq
+langchain-chroma
+langchain-community
+fastembed
+python-dotenv

@@ -1,0 +1,22 @@
+# Secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Chainlit runtime files
+.files/
+
+# Scratch notebooks
+new.ipynb
+new1.ipynb
+Untitled.ipynb
+railwayignore.ipynb
+
+# Office source files (keep the PDF only)
+*.pptx
+*.docx
